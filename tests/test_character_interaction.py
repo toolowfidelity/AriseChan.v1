@@ -1,7 +1,8 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, call, patch
 
+from OpenGL import GL
 from arisechan.ui.blocks import CharacterBlock, FloatingBlock
 from arisechan.ui.live2d_view import Live2DView, _normalized_gaze
 
@@ -23,6 +24,7 @@ class CharacterInteractionTests(unittest.TestCase):
         view = Live2DView.__new__(Live2DView)
         view.failed = False
         view.shutdown_requested = False
+        view.render_framebuffer = None
         view.live2d = Mock()
         view.model = Mock()
         view.ready_notified = False
@@ -65,6 +67,51 @@ class CharacterInteractionTests(unittest.TestCase):
         self.assertAlmostEqual(values["ParamAngleY"], -0.088)
         view.model.Draw.assert_called_once_with()
         view.after_idle.assert_called_once_with(view.on_ready)
+
+    def test_redraw_blits_supersampled_render_to_widget_size(self):
+        view = Live2DView.__new__(Live2DView)
+        view.failed = False
+        view.shutdown_requested = False
+        view.render_framebuffer = 17
+        view.render_target_size = (600, 800)
+        view.width = 300
+        view.height = 400
+        view.live2d = Mock()
+        view.model = Mock()
+        view._update_gaze = Mock()
+        view.ready_notified = True
+
+        with (
+            patch("arisechan.ui.live2d_view.GL.glBindFramebuffer") as bind_framebuffer,
+            patch("arisechan.ui.live2d_view.GL.glViewport") as viewport,
+            patch("arisechan.ui.live2d_view.GL.glBlitFramebuffer") as blit,
+        ):
+            view.redraw()
+
+        self.assertEqual(
+            bind_framebuffer.call_args_list,
+            [
+                call(GL.GL_FRAMEBUFFER, 17),
+                call(GL.GL_READ_FRAMEBUFFER, 17),
+                call(GL.GL_DRAW_FRAMEBUFFER, 0),
+                call(GL.GL_FRAMEBUFFER, 0),
+            ],
+        )
+        viewport.assert_has_calls(
+            [call(0, 0, 600, 800), call(0, 0, 300, 400)]
+        )
+        blit.assert_called_once_with(
+            0,
+            0,
+            600,
+            800,
+            0,
+            0,
+            300,
+            400,
+            GL.GL_COLOR_BUFFER_BIT,
+            GL.GL_LINEAR,
+        )
 
     def test_disabling_cursor_follow_returns_gaze_toward_center(self):
         view = Live2DView.__new__(Live2DView)

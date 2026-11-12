@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 from arisechan.storage.credential_store import (
     CredentialStoreError,
@@ -8,6 +8,46 @@ from arisechan.storage.credential_store import (
     save_api_key,
 )
 from arisechan.storage.settings_store import SettingsError, save_preferences
+
+
+class ScrollableTab(tk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent, bg="#171522")
+        self.canvas = tk.Canvas(
+            self,
+            bg="#171522",
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.scrollbar = tk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview,
+            bg="#2c2740",
+            activebackground="#e9a6d7",
+            troughcolor="#171522",
+            highlightthickness=0,
+            borderwidth=0,
+            width=12,
+        )
+        self.content = tk.Frame(self.canvas, bg="#171522", padx=18, pady=16)
+        self._content_window = self.canvas.create_window(
+            (0, 0),
+            window=self.content,
+            anchor="nw",
+        )
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        self.content.bind("<Configure>", self._update_scroll_region)
+        self.canvas.bind("<Configure>", self._resize_content)
+
+    def _update_scroll_region(self, _event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _resize_content(self, event):
+        self.canvas.itemconfigure(self._content_window, width=event.width)
 
 
 def open_settings_dialog(
@@ -29,12 +69,40 @@ def open_settings_dialog(
     dialog.resizable(False, False)
     dialog.transient(parent)
     dialog.grab_set()
-    dialog.geometry("480x900")
+    dialog.geometry("560x760")
 
-    content = tk.Frame(dialog, bg="#171522", padx=18, pady=16)
-    content.pack(fill="both", expand=True)
+    style = ttk.Style(dialog)
+    style.configure(
+        "Arise.TNotebook",
+        background="#171522",
+        borderwidth=0,
+    )
+    style.configure(
+        "Arise.TNotebook.Tab",
+        background="#2c2740",
+        foreground="#d8cde4",
+        padding=(14, 8),
+        font=("Segoe UI", 9),
+    )
+    style.map(
+        "Arise.TNotebook.Tab",
+        background=[("selected", "#453952")],
+        foreground=[("selected", "#f4efff")],
+    )
+
+    notebook = ttk.Notebook(dialog, style="Arise.TNotebook")
+    notebook.pack(fill="both", expand=True, padx=10, pady=(10, 0))
+
+    ai_tab = ScrollableTab(notebook)
+    communication_tab = ScrollableTab(notebook)
+    behavior_tab = ScrollableTab(notebook)
+    notebook.add(ai_tab, text="ИИ")
+    notebook.add(communication_tab, text="Общение")
+    notebook.add(behavior_tab, text="Поведение")
+
+    ai_content = ai_tab.content
     tk.Label(
-        content,
+        ai_content,
         text="Поставщик ИИ",
         bg="#171522",
         fg="#f4efff",
@@ -46,7 +114,7 @@ def open_settings_dialog(
         ("openai", "OpenAI API"),
     ):
         tk.Radiobutton(
-            content,
+            ai_content,
             text=label,
             variable=provider_var,
             value=value,
@@ -57,15 +125,16 @@ def open_settings_dialog(
             selectcolor="#2c2740",
             font=("Segoe UI", 9),
         ).pack(anchor="w")
+
     tk.Label(
-        content,
+        ai_content,
         text="Модель Ollama",
         bg="#171522",
         fg="#f4efff",
         font=("Segoe UI", 9, "bold"),
-    ).pack(anchor="w", pady=(6, 3))
+    ).pack(anchor="w", pady=(10, 3))
     model_entry = tk.Entry(
-        content,
+        ai_content,
         bg="#2c2740",
         fg="#f4efff",
         insertbackground="#f4efff",
@@ -73,18 +142,18 @@ def open_settings_dialog(
         borderwidth=0,
         font=("Segoe UI", 10),
     )
-    model_entry.pack(fill="x", ipady=6, pady=(0, 12))
+    model_entry.pack(fill="x", ipady=6, pady=(0, 18))
     model_entry.insert(0, preferences["ollama_model"])
 
     tk.Label(
-        content,
+        ai_content,
         text="Ключ OpenAI API",
         bg="#171522",
         fg="#f4efff",
         font=("Segoe UI", 12, "bold"),
     ).pack(anchor="w")
     tk.Label(
-        content,
+        ai_content,
         text=(
             "Нужен только при выборе OpenAI API. Ключ шифруется Windows и хранится "
             "только на этом компьютере. Оставь поле пустым, чтобы не менять его."
@@ -94,12 +163,12 @@ def open_settings_dialog(
         ),
         bg="#171522",
         fg="#aaa2bd",
-        wraplength=400,
+        wraplength=460,
         justify="left",
         font=("Segoe UI", 9),
     ).pack(anchor="w", pady=(5, 10))
     key_entry = tk.Entry(
-        content,
+        ai_content,
         show="*",
         bg="#2c2740",
         fg="#f4efff",
@@ -112,7 +181,7 @@ def open_settings_dialog(
     clear_key_var = tk.BooleanVar(dialog, value=False)
     if has_api_key:
         tk.Checkbutton(
-            content,
+            ai_content,
             text="Удалить сохранённый API-ключ",
             variable=clear_key_var,
             bg="#171522",
@@ -123,16 +192,17 @@ def open_settings_dialog(
             font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(0, 12))
 
+    communication_content = communication_tab.content
     tk.Label(
-        content,
+        communication_content,
         text="Характер Arise",
         bg="#171522",
         fg="#f4efff",
         font=("Segoe UI", 12, "bold"),
     ).pack(anchor="w")
     persona_input = tk.Text(
-        content,
-        height=3,
+        communication_content,
+        height=5,
         bg="#2c2740",
         fg="#f4efff",
         insertbackground="#f4efff",
@@ -141,11 +211,11 @@ def open_settings_dialog(
         wrap="word",
         font=("Segoe UI", 9),
     )
-    persona_input.pack(fill="both", expand=True, pady=(8, 14))
+    persona_input.pack(fill="x", pady=(8, 18))
     persona_input.insert("1.0", persona)
 
     tk.Label(
-        content,
+        communication_content,
         text="Качества общения (0–100)",
         bg="#171522",
         fg="#f4efff",
@@ -162,7 +232,7 @@ def open_settings_dialog(
         ("energy", "Энергичность · спокойно — оживлённо"),
     ):
         tk.Scale(
-            content,
+            communication_content,
             label=label,
             variable=communication_vars[name],
             from_=0,
@@ -177,16 +247,16 @@ def open_settings_dialog(
             highlightthickness=0,
             sliderrelief="flat",
             font=("Segoe UI", 8),
-        ).pack(fill="x", pady=(0, 2))
+        ).pack(fill="x", pady=(0, 6))
 
+    behavior_content = behavior_tab.content
     tk.Label(
-        content,
+        behavior_content,
         text="Поведение",
         bg="#171522",
         fg="#f4efff",
         font=("Segoe UI", 12, "bold"),
-    ).pack(anchor="w", pady=(0, 4))
-
+    ).pack(anchor="w", pady=(0, 8))
     preference_vars = {
         "follow_cursor": tk.BooleanVar(
             dialog,
@@ -207,7 +277,7 @@ def open_settings_dialog(
         ("greet_on_start", "Проигрывать анимацию приветствия при появлении"),
     ):
         tk.Checkbutton(
-            content,
+            behavior_content,
             text=label,
             variable=preference_vars[name],
             bg="#171522",
@@ -216,7 +286,9 @@ def open_settings_dialog(
             activeforeground="#f4efff",
             selectcolor="#2c2740",
             font=("Segoe UI", 9),
-        ).pack(anchor="w")
+            wraplength=460,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
 
     def save_settings():
         updated_persona = persona_input.get("1.0", "end-1c").strip()
@@ -292,7 +364,7 @@ def open_settings_dialog(
                 parent=parent,
             )
 
-    buttons = tk.Frame(content, bg="#171522")
+    buttons = tk.Frame(dialog, bg="#171522", padx=10, pady=10)
     buttons.pack(fill="x")
     tk.Button(
         buttons,

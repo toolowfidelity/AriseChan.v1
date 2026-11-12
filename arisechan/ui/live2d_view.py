@@ -1,8 +1,10 @@
 import json
+import logging
 import math
 import random
 from pathlib import Path
 
+from OpenGL import GL
 from pyopengltk import OpenGLFrame
 
 from arisechan.services.motion_commands import MOTION_COUNT, MOTION_SEQUENCES
@@ -16,12 +18,21 @@ GAZE_SMOOTHING = 0.4
 EYE_POSITION_Y_RATIO = 0.38
 HEAD_TRACKING_X_DEGREES = 10
 HEAD_TRACKING_Y_DEGREES = 6
+SUPERSAMPLING_SCALE = 2
+logger = logging.getLogger(__name__)
 
 
 def _normalized_gaze(pointer_x, pointer_y, eye_x, eye_y, screen_width, screen_height):
     return (
         max(-1.0, min(1.0, (pointer_x - eye_x) / (screen_width / 2))),
         max(-1.0, min(1.0, (eye_y - pointer_y) / (screen_height / 2))),
+    )
+
+
+def _render_target_size(width, height):
+    return (
+        max(1, int(width) * SUPERSAMPLING_SCALE),
+        max(1, int(height) * SUPERSAMPLING_SCALE),
     )
 
 
@@ -59,6 +70,10 @@ class Live2DView(OpenGLFrame):
         self.failed = False
         self.shutdown_requested = False
         self.runtime_initialized = False
+        self.supersampling_enabled = True
+        self.render_framebuffer = None
+        self.render_texture = None
+        self.render_target_size = None
 
     def initgl(self):
         if self.failed or self.shutdown_requested:
@@ -115,7 +130,10 @@ class Live2DView(OpenGLFrame):
                 self.model.SetAutoBreath(True)
                 self._start_idle_motion()
 
-            self.model.Resize(self.width, self.height)
+            if self.supersampling_enabled and self._prepare_render_target():
+                self.model.Resize(*self.render_target_size)
+            else:
+                self.model.Resize(self.width, self.height)
             if self.pending_sequence is not None:
                 sequence_name = self.pending_sequence
                 self.pending_sequence = None
@@ -128,6 +146,87 @@ class Live2DView(OpenGLFrame):
             self.failed = True
             self.animate = 0
             self.after_idle(lambda error=error: self.on_error(error))
+
+    def _prepare_render_target(self):
+        size = _render_target_size(self.width, self.height)
+        if self.render_target_size == size and self.render_framebuffer is not None:
+            return True
+
+        self._release_render_target()
+        width, height = size
+        previous_framebuffer = GL.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING)
+        previous_texture = GL.glGetIntegerv(GL.GL_TEXTURE_BINDING_2D)
+        framebuffer = None
+        texture = None
+        try:
+            texture = GL.glGenTextures(1)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
+            GL.glTexImage2D(
+                GL.GL_TEXTURE_2D,
+                0,
+                GL.GL_RGBA8,
+                width,
+                height,
+                0,
+                GL.GL_RGBA,
+                GL.GL_UNSIGNED_BYTE,
+                None,
+            )
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(
+                GL.GL_TEXTURE_2D,
+                GL.GL_TEXTURE_WRAP_S,
+                GL.GL_CLAMP_TO_EDGE,
+            )
+            GL.glTexParameteri(
+                GL.GL_TEXTURE_2D,
+                GL.GL_TEXTURE_WRAP_T,
+                GL.GL_CLAMP_TO_EDGE,
+            )
+
+            framebuffer = GL.glGenFramebuffers(1)
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, framebuffer)
+            GL.glFramebufferTexture2D(
+                GL.GL_FRAMEBUFFER,
+                GL.GL_COLOR_ATTACHMENT0,
+                GL.GL_TEXTURE_2D,
+                texture,
+                0,
+            )
+            status = GL.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER)
+            if status != GL.GL_FRAMEBUFFER_COMPLETE:
+                raise RuntimeError(
+                    f"OpenGL framebuffer is incomplete (status {status})."
+                )
+
+            self.render_framebuffer = framebuffer
+            self.render_texture = texture
+            self.render_target_size = size
+            return True
+        except Exception as error:
+            if framebuffer is not None:
+                GL.glDeleteFramebuffers(1, [framebuffer])
+            if texture is not None:
+                GL.glDeleteTextures(1, [texture])
+            self.supersampling_enabled = False
+            logger.warning(
+                "Live2D supersampling unavailable; using native rendering: %s",
+                error,
+            )
+            return False
+        finally:
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, previous_framebuffer)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, previous_texture)
+
+    def _release_render_target(self):
+        if self.render_framebuffer is not None:
+            GL.glDeleteFramebuffers(1, [self.render_framebuffer])
+            self.render_framebuffer = None
+        if self.render_texture is not None:
+            GL.glDeleteTextures(1, [self.render_texture])
+            self.render_texture = None
+        self.render_target_size = None
 
     def _load_motion_durations(self):
         motions = self.model.GetMotions().get(self.MOTION_GROUP, [])
@@ -142,10 +241,33 @@ class Live2DView(OpenGLFrame):
         if self.failed or self.shutdown_requested or self.model is None:
             return
 
-        self.live2d.clearBuffer(*LIVE2D_TRANSPARENT_RGB, 0.0)
-        self.model.Update()
-        self._update_gaze()
-        self.model.Draw()
+        if self.render_framebuffer is not None:
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.render_framebuffer)
+            GL.glViewport(0, 0, *self.render_target_size)
+        try:
+            self.live2d.clearBuffer(*LIVE2D_TRANSPARENT_RGB, 0.0)
+            self.model.Update()
+            self._update_gaze()
+            self.model.Draw()
+        finally:
+            if self.render_framebuffer is not None:
+                width, height = self.render_target_size
+                GL.glBindFramebuffer(GL.GL_READ_FRAMEBUFFER, self.render_framebuffer)
+                GL.glBindFramebuffer(GL.GL_DRAW_FRAMEBUFFER, 0)
+                GL.glBlitFramebuffer(
+                    0,
+                    0,
+                    width,
+                    height,
+                    0,
+                    0,
+                    self.width,
+                    self.height,
+                    GL.GL_COLOR_BUFFER_BIT,
+                    GL.GL_LINEAR,
+                )
+                GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
+                GL.glViewport(0, 0, self.width, self.height)
         if not self.ready_notified:
             self.ready_notified = True
             if self.on_ready:
@@ -309,6 +431,10 @@ class Live2DView(OpenGLFrame):
             self.after_cancel(self.cb)
             self.cb = None
 
+        if self.context_created:
+            self.tkMakeCurrent()
+            if self.winfo_ismapped():
+                self._release_render_target()
         if self.live2d is not None and self.runtime_initialized:
             if self.context_created:
                 self.tkMakeCurrent()
