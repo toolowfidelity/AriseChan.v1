@@ -53,6 +53,7 @@ class Live2DView(OpenGLFrame):
         self.eye_parameter_ranges = {}
         self.gaze_x = 0.0
         self.gaze_y = 0.0
+        self.follow_cursor = True
         self.screen_width = 0
         self.screen_height = 0
         self.failed = False
@@ -151,18 +152,21 @@ class Live2DView(OpenGLFrame):
                 self.after_idle(self.on_ready)
 
     def _update_gaze(self):
-        pointer_x = self.winfo_pointerx()
-        pointer_y = self.winfo_pointery()
-        eye_x = self.winfo_rootx() + self.width / 2
-        eye_y = self.winfo_rooty() + self.height * EYE_POSITION_Y_RATIO
-        target_x, target_y = _normalized_gaze(
-            pointer_x,
-            pointer_y,
-            eye_x,
-            eye_y,
-            self.screen_width,
-            self.screen_height,
-        )
+        if self.follow_cursor:
+            pointer_x = self.winfo_pointerx()
+            pointer_y = self.winfo_pointery()
+            eye_x = self.winfo_rootx() + self.width / 2
+            eye_y = self.winfo_rooty() + self.height * EYE_POSITION_Y_RATIO
+            target_x, target_y = _normalized_gaze(
+                pointer_x,
+                pointer_y,
+                eye_x,
+                eye_y,
+                self.screen_width,
+                self.screen_height,
+            )
+        else:
+            target_x = target_y = 0.0
         self.gaze_x += (target_x - self.gaze_x) * GAZE_SMOOTHING
         self.gaze_y += (target_y - self.gaze_y) * GAZE_SMOOTHING
 
@@ -185,6 +189,9 @@ class Live2DView(OpenGLFrame):
                 min(maximum, current + gaze * maximum_offset),
             )
             self.model.SetParamById(parameter, value)
+
+    def set_follow_cursor(self, enabled):
+        self.follow_cursor = bool(enabled)
 
     def play_reaction(self):
         motion_count = self.motion_count or MOTION_COUNT + 1

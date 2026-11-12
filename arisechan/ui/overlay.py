@@ -23,7 +23,7 @@ from arisechan.storage.credential_store import (
     CredentialStoreError,
     load_api_key,
 )
-from arisechan.storage.settings_store import SettingsError, load_persona
+from arisechan.storage.settings_store import SettingsError, load_preferences
 from arisechan.ui.bubble_layout import (
     BUBBLE_GAP,
     BUBBLE_TAIL_EXTENSION,
@@ -69,7 +69,8 @@ class AriseOverlay:
         self.root = tk.Tk()
         self.root.title("AriseChan")
         try:
-            self.persona = load_persona()
+            self.preferences = load_preferences()
+            self.persona = self.preferences["persona"]
             self.api_key_configured = load_api_key() is not None
         except (CredentialStoreError, SettingsError) as error:
             messagebox.showerror("Настройки Arise", str(error), parent=self.root)
@@ -77,6 +78,9 @@ class AriseOverlay:
             raise
         self.root.withdraw()
 
+        self.follow_cursor = self.preferences["follow_cursor"]
+        self.animate_on_click = self.preferences["animate_on_click"]
+        self.greet_on_start = self.preferences["greet_on_start"]
         self.screen_width = self.root.winfo_screenwidth()
         self.screen_height = self.root.winfo_screenheight()
         self.taskbar_top = _taskbar_top(self.screen_height)
@@ -94,7 +98,7 @@ class AriseOverlay:
         self.welcome_shown = False
 
         self.character_block = self._create_character()
-        self.controls_block = self._create_controls()
+        self.controls_block = None
 
         self.root.bind_all("<Escape>", lambda _event: self.shutdown())
         self.root.bind_all("<Control-Shift-a>", self._restore_controls)
@@ -127,19 +131,35 @@ class AriseOverlay:
             if self.character_block and self.character_block.exists()
             else self._default_character_position()
         )
-        x = max(8, min(self.screen_width - 196, char_x + 60))
-        y = max(8, char_y - 58)
+        x, y = self._controls_position(char_x, char_y)
         return ControlsBlock(self, x, y, self._controls_closed)
 
+    def _controls_position(self, char_x, char_y):
+        if char_x + CHARACTER_WIDTH // 2 >= self.screen_width // 2:
+            x = char_x - ControlsBlock.WIDTH - ControlsBlock.GAP
+        else:
+            x = char_x + CHARACTER_WIDTH + ControlsBlock.GAP
+        max_x = max(8, self.screen_width - ControlsBlock.WIDTH - 8)
+        x = max(8, min(max_x, x))
+        y = char_y + (CHARACTER_HEIGHT - ControlsBlock.HEIGHT) // 2
+        max_y = max(
+            8,
+            getattr(self, "taskbar_top", self.screen_height)
+            - ControlsBlock.HEIGHT,
+        )
+        y = max(8, min(max_y, y))
+        return x, y
+
     def _controls_closed(self, block):
-        if self.controls_block is not block:
-            return
-        self.controls_block = None
-        self.shutdown()
+        if self.controls_block is block:
+            self.controls_block = None
+        self._maybe_shutdown()
 
     def _character_closed(self, block):
         if self.character_block is block:
             self.character_block = None
+        if self.controls_block and self.controls_block.exists():
+            self.controls_block.set_character_visible(False)
         self._maybe_shutdown()
 
     def _bubble_closed(self, block):
@@ -165,11 +185,21 @@ class AriseOverlay:
             self.controls_block = self._create_controls()
         return "break"
 
+    def toggle_controls_menu(self):
+        if self.controls_block and self.controls_block.exists():
+            self.controls_block.close()
+        else:
+            self.controls_block = self._create_controls()
+
     def toggle_character(self):
         if self.character_block and self.character_block.exists():
             self.character_block.close()
         else:
             self.character_block = self._create_character()
+        if self.controls_block and self.controls_block.exists():
+            self.controls_block.set_character_visible(
+                bool(self.character_block and self.character_block.exists())
+            )
 
     def _character_moved(self):
         if not self.character_block or not self.character_block.exists():
@@ -177,15 +207,13 @@ class AriseOverlay:
 
         char_x, char_y = self.character_block.position()
         if self.controls_block and self.controls_block.exists():
-            controls_x = max(8, min(self.screen_width - 196, char_x + 60))
-            controls_y = max(8, char_y - 58)
-            self.controls_block.move_to(controls_x, controls_y)
+            self.controls_block.move_to(*self._controls_position(char_x, char_y))
 
         self._layout_message_stack()
 
     def _character_entered(self):
         self._character_moved()
-        if self.character_block:
+        if self.character_block and self.greet_on_start:
             self.character_block.play_sequence("greeting")
         if self.welcome_shown:
             return
@@ -460,13 +488,21 @@ class AriseOverlay:
         open_settings_dialog(
             self._dialog_parent(),
             self.persona,
+            self.preferences,
             self._settings_saved,
             prompted_by_send=prompted_by_send,
         )
 
-    def _settings_saved(self, persona, api_key_configured):
+    def _settings_saved(self, persona, api_key_configured, preferences):
         self.persona = persona
         self.api_key_configured = api_key_configured
+        self.preferences.update(preferences)
+        self.preferences["persona"] = persona
+        self.follow_cursor = preferences["follow_cursor"]
+        self.animate_on_click = preferences["animate_on_click"]
+        self.greet_on_start = preferences["greet_on_start"]
+        if self.character_block:
+            self.character_block.set_follow_cursor(self.follow_cursor)
         self._set_status(self.idle_status())
 
     def _dialog_parent(self):

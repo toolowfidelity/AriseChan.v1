@@ -12,6 +12,7 @@ class CharacterBlock(FloatingBlock):
     ENTRY_ANIMATION_DURATION_MS = 850
     ENTRY_ANIMATION_INTERVAL_MS = 16
     ENTRY_OFFSCREEN_MARGIN = 16
+    DOUBLE_CLICK_INTERVAL_MS = 500
 
     def __init__(self, app, x, y, on_close):
         self.image = None
@@ -21,6 +22,7 @@ class CharacterBlock(FloatingBlock):
         self._entry_started = False
         self._entry_active = False
         self._entry_after_id = None
+        self._click_after_id = None
 
         super().__init__(
             app,
@@ -49,6 +51,9 @@ class CharacterBlock(FloatingBlock):
             CHARACTER_WIDTH,
             CHARACTER_HEIGHT,
             on_ready=self._live2d_ready,
+        )
+        self.live2d_view.set_follow_cursor(
+            getattr(self.app, "follow_cursor", True)
         )
         self.live2d_view.place(
             x=0,
@@ -111,9 +116,30 @@ class CharacterBlock(FloatingBlock):
         self.app._character_moved()
 
     def _on_character_click(self, _event=None):
-        if not getattr(self, "_dragged", False):
-            self.play_reaction()
+        if getattr(self, "_dragged", False):
+            self._cancel_pending_click()
+            return "break"
+
+        if self._click_after_id is not None:
+            self._cancel_pending_click()
+            self.app.toggle_controls_menu()
+            return "break"
+
+        self._click_after_id = self.window.after(
+            self.DOUBLE_CLICK_INTERVAL_MS,
+            self._finish_single_click,
+        )
         return "break"
+
+    def _finish_single_click(self):
+        self._click_after_id = None
+        if getattr(self.app, "animate_on_click", True):
+            self.play_reaction()
+
+    def _cancel_pending_click(self):
+        if self._click_after_id is not None:
+            self.window.after_cancel(self._click_after_id)
+            self._click_after_id = None
 
     def _live2d_failed(self, error):
         if not self.exists():
@@ -169,6 +195,10 @@ class CharacterBlock(FloatingBlock):
             return self.live2d_view.play_reaction()
         return None
 
+    def set_follow_cursor(self, enabled):
+        if self.live2d_view is not None:
+            self.live2d_view.set_follow_cursor(enabled)
+
     def play_motion(self, motion_index):
         return bool(
             self.live2d_view
@@ -188,6 +218,7 @@ class CharacterBlock(FloatingBlock):
         )
 
     def close(self, notify=True):
+        self._cancel_pending_click()
         if self._entry_after_id is not None:
             self.window.after_cancel(self._entry_after_id)
             self._entry_after_id = None

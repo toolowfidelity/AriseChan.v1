@@ -115,3 +115,12 @@ def load_api_key():
         return _transform(encrypted, decrypt=True).decode("utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise CredentialStoreError(f"Не удалось прочитать API-ключ: {error}") from error
+
+
+def delete_api_key():
+    try:
+        path = _credential_path()
+        if path.exists():
+            path.unlink()
+    except OSError as error:
+        raise CredentialStoreError(f"Не удалось удалить API-ключ: {error}") from error

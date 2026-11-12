@@ -5,6 +5,7 @@ from arisechan.ui.blocks import (
     BUBBLE_INPUT_HEIGHT,
     CHARACTER_HEIGHT,
     CHARACTER_WIDTH,
+    ControlsBlock,
     MessageBubbleBlock,
 )
 from arisechan.ui.bubble_layout import (
@@ -144,7 +145,10 @@ class BubbleLayoutTests(unittest.TestCase):
         ):
             self.overlay._character_moved()
 
-        self.overlay.controls_block.move_to.assert_called_once_with(1060, 342)
+        self.overlay.controls_block.move_to.assert_called_once_with(
+            1000 - ControlsBlock.WIDTH - ControlsBlock.GAP,
+            400 + (CHARACTER_HEIGHT - ControlsBlock.HEIGHT) // 2,
+        )
         bubble.move_to.assert_called_once_with(900, 500)
 
     def test_new_messages_stack_below_previous_bubbles(self):
@@ -347,6 +351,7 @@ class BubbleLayoutTests(unittest.TestCase):
     def test_welcome_is_spawned_once_after_character_enters(self):
         self.overlay.welcome_shown = False
         self.overlay.character_block = None
+        self.overlay.greet_on_start = True
         self.overlay._spawn_message_block = Mock()
 
         self.overlay._character_entered()
@@ -357,6 +362,23 @@ class BubbleLayoutTests(unittest.TestCase):
             "Привет! Я Arise. Нажми на облачко, чтобы написать мне.",
             animate=False,
         )
+
+    def test_disabling_greeting_keeps_welcome_bubble_available(self):
+        self.overlay.greet_on_start = False
+        self.overlay.welcome_shown = False
+        self.overlay.character_block = Mock()
+        self.overlay._character_moved = Mock()
+        self.overlay._spawn_message_block = Mock()
+
+        self.overlay._character_entered()
+
+        self.overlay.character_block.play_sequence.assert_not_called()
+        self.overlay._spawn_message_block.assert_called_once_with(
+            "welcome",
+            "Привет! Я Arise. Нажми на облачко, чтобы написать мне.",
+            animate=False,
+        )
+        self.assertTrue(self.overlay.welcome_shown)
 
 
 if __name__ == "__main__":

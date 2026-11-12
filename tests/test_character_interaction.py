@@ -36,6 +36,7 @@ class CharacterInteractionTests(unittest.TestCase):
         }
         view.gaze_x = 0.0
         view.gaze_y = 0.0
+        view.follow_cursor = True
         view.width = 300
         view.height = 400
         view.screen_width = 1000
@@ -64,6 +65,33 @@ class CharacterInteractionTests(unittest.TestCase):
         self.assertAlmostEqual(values["ParamAngleY"], -0.088)
         view.model.Draw.assert_called_once_with()
         view.after_idle.assert_called_once_with(view.on_ready)
+
+    def test_disabling_cursor_follow_returns_gaze_toward_center(self):
+        view = Live2DView.__new__(Live2DView)
+        view.follow_cursor = False
+        view.gaze_x = 0.5
+        view.gaze_y = -0.5
+        view.width = 300
+        view.height = 400
+        view.screen_width = 1000
+        view.screen_height = 800
+        view.eye_parameter_ranges = {
+            "ParamEyeBallX": (-2.0, 2.0),
+            "ParamEyeBallY": (-1.0, 1.0),
+            "ParamAngleX": (-30.0, 30.0),
+            "ParamAngleY": (-30.0, 30.0),
+        }
+        view.model = Mock()
+        view.model.GetParamValueById.return_value = 0.0
+        view.winfo_pointerx = Mock()
+        view.winfo_pointery = Mock()
+
+        view._update_gaze()
+
+        self.assertAlmostEqual(view.gaze_x, 0.3)
+        self.assertAlmostEqual(view.gaze_y, -0.3)
+        view.winfo_pointerx.assert_not_called()
+        view.winfo_pointery.assert_not_called()
 
     def test_character_enters_from_offscreen_right_after_loading(self):
         character = CharacterBlock.__new__(CharacterBlock)
@@ -104,15 +132,59 @@ class CharacterInteractionTests(unittest.TestCase):
         character.move_to.assert_called_with(1468, 522)
         character.app._character_entered.assert_called_once_with()
 
-    def test_clicking_character_plays_a_motion(self):
+    def test_single_click_plays_reaction_after_double_click_window(self):
         character = CharacterBlock.__new__(CharacterBlock)
         character._dragged = False
+        character._click_after_id = None
+        character.window = Mock()
+        character.window.after.return_value = "single-click"
+        character.app = Mock()
+        character.app.animate_on_click = True
         character.play_reaction = Mock(return_value=7)
 
         result = character._on_character_click()
 
         self.assertEqual(result, "break")
+        character.window.after.assert_called_once_with(
+            character.DOUBLE_CLICK_INTERVAL_MS,
+            character._finish_single_click,
+        )
+        character.play_reaction.assert_not_called()
+        character._finish_single_click()
         character.play_reaction.assert_called_once_with()
+
+    def test_single_click_does_not_react_when_disabled(self):
+        character = CharacterBlock.__new__(CharacterBlock)
+        character._dragged = False
+        character._click_after_id = None
+        character.window = Mock()
+        character.window.after.return_value = "single-click"
+        character.app = Mock()
+        character.app.animate_on_click = False
+        character.play_reaction = Mock()
+
+        character._on_character_click()
+        character._finish_single_click()
+
+        character.play_reaction.assert_not_called()
+
+    def test_double_click_opens_menu_without_playing_single_click_motion(self):
+        character = CharacterBlock.__new__(CharacterBlock)
+        character._dragged = False
+        character._click_after_id = None
+        character.window = Mock()
+        character.window.after.return_value = "single-click"
+        character.app = Mock()
+        character.play_reaction = Mock()
+
+        character._on_character_click()
+        result = character._on_character_click()
+
+        self.assertEqual(result, "break")
+        character.window.after_cancel.assert_called_once_with("single-click")
+        character.app.toggle_controls_menu.assert_called_once_with()
+        character.play_reaction.assert_not_called()
+        self.assertIsNone(character._click_after_id)
 
     def test_composed_motion_sequence_starts_in_declared_order(self):
         view = Live2DView.__new__(Live2DView)
@@ -157,6 +229,7 @@ class CharacterInteractionTests(unittest.TestCase):
     def test_dragging_character_does_not_trigger_click_motion(self):
         character = CharacterBlock.__new__(CharacterBlock)
         character._dragged = True
+        character._click_after_id = None
         character.play_reaction = Mock()
 
         character._on_character_click()

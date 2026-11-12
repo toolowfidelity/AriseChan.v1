@@ -3,13 +3,20 @@ from tkinter import messagebox
 
 from arisechan.storage.credential_store import (
     CredentialStoreError,
+    delete_api_key,
     load_api_key,
     save_api_key,
 )
-from arisechan.storage.settings_store import SettingsError, save_persona
+from arisechan.storage.settings_store import SettingsError, save_preferences
 
 
-def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
+def open_settings_dialog(
+    parent,
+    persona,
+    preferences,
+    on_saved,
+    prompted_by_send=False,
+):
     try:
         has_api_key = load_api_key() is not None
     except CredentialStoreError as error:
@@ -22,7 +29,7 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
     dialog.resizable(False, False)
     dialog.transient(parent)
     dialog.grab_set()
-    dialog.geometry("440x470")
+    dialog.geometry("460x620")
 
     content = tk.Frame(dialog, bg="#171522", padx=18, pady=16)
     content.pack(fill="both", expand=True)
@@ -58,6 +65,19 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
         font=("Segoe UI", 10),
     )
     key_entry.pack(fill="x", ipady=8, pady=(0, 16))
+    clear_key_var = tk.BooleanVar(dialog, value=False)
+    if has_api_key:
+        tk.Checkbutton(
+            content,
+            text="Удалить сохранённый API-ключ",
+            variable=clear_key_var,
+            bg="#171522",
+            fg="#d8cde4",
+            activebackground="#171522",
+            activeforeground="#f4efff",
+            selectcolor="#2c2740",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 12))
 
     tk.Label(
         content,
@@ -68,7 +88,7 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
     ).pack(anchor="w")
     persona_input = tk.Text(
         content,
-        height=8,
+        height=6,
         bg="#2c2740",
         fg="#f4efff",
         insertbackground="#f4efff",
@@ -79,6 +99,45 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
     )
     persona_input.pack(fill="both", expand=True, pady=(8, 14))
     persona_input.insert("1.0", persona)
+
+    tk.Label(
+        content,
+        text="Поведение",
+        bg="#171522",
+        fg="#f4efff",
+        font=("Segoe UI", 12, "bold"),
+    ).pack(anchor="w", pady=(0, 4))
+
+    preference_vars = {
+        "follow_cursor": tk.BooleanVar(
+            dialog,
+            value=preferences["follow_cursor"],
+        ),
+        "animate_on_click": tk.BooleanVar(
+            dialog,
+            value=preferences["animate_on_click"],
+        ),
+        "greet_on_start": tk.BooleanVar(
+            dialog,
+            value=preferences["greet_on_start"],
+        ),
+    }
+    for name, label in (
+        ("follow_cursor", "Следить глазами и головой за курсором"),
+        ("animate_on_click", "Случайное движение при одиночном нажатии"),
+        ("greet_on_start", "Проигрывать анимацию приветствия при появлении"),
+    ):
+        tk.Checkbutton(
+            content,
+            text=label,
+            variable=preference_vars[name],
+            bg="#171522",
+            fg="#d8cde4",
+            activebackground="#171522",
+            activeforeground="#f4efff",
+            selectcolor="#2c2740",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w")
 
     def save_settings():
         updated_persona = persona_input.get("1.0", "end-1c").strip()
@@ -94,7 +153,13 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
         try:
             if api_key:
                 save_api_key(api_key)
-            save_persona(updated_persona)
+            elif clear_key_var.get():
+                delete_api_key()
+            updated_preferences = {
+                name: variable.get()
+                for name, variable in preference_vars.items()
+            }
+            save_preferences(updated_persona, **updated_preferences)
             saved_api_key = load_api_key()
             if api_key and saved_api_key != api_key:
                 raise CredentialStoreError(
@@ -104,7 +169,11 @@ def open_settings_dialog(parent, persona, on_saved, prompted_by_send=False):
             messagebox.showerror("Настройки Arise", str(error), parent=dialog)
             return
 
-        on_saved(updated_persona, saved_api_key is not None)
+        on_saved(
+            updated_persona,
+            saved_api_key is not None,
+            updated_preferences,
+        )
         dialog.destroy()
         if not prompted_by_send:
             messagebox.showinfo(
