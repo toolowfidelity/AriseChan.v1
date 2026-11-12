@@ -84,6 +84,16 @@ class OverlayLifecycleTests(unittest.TestCase):
         with patch("arisechan.ui.overlay.sys.platform", "linux"):
             self.assertEqual(_taskbar_top(900), 900)
 
+    def test_ollama_is_used_for_normal_chat_messages(self):
+        overlay = AriseOverlay.__new__(AriseOverlay)
+        overlay.ai_provider = "ollama"
+        overlay.is_responding = False
+        overlay._start_ollama_response = Mock()
+
+        overlay.submit_message("  Привет  ")
+
+        overlay._start_ollama_response.assert_called_once_with("Привет")
+
 
 if __name__ == "__main__":
     unittest.main()

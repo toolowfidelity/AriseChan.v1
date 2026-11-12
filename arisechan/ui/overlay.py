@@ -8,6 +8,11 @@ from tkinter import font as tkfont
 from tkinter import messagebox
 
 from arisechan.services.openai_client import MODEL, OpenAIClient, OpenAIError
+from arisechan.services.ollama_client import (
+    DEFAULT_MODEL as OLLAMA_MODEL,
+    OllamaClient,
+    OllamaError,
+)
 from arisechan.services.offline_responder import (
     reply_to,
     reply_to_motion,
@@ -81,6 +86,8 @@ class AriseOverlay:
         self.follow_cursor = self.preferences["follow_cursor"]
         self.animate_on_click = self.preferences["animate_on_click"]
         self.greet_on_start = self.preferences["greet_on_start"]
+        self.ai_provider = self.preferences["ai_provider"]
+        self.ollama_model = self.preferences.get("ollama_model", OLLAMA_MODEL)
         self.screen_width = self.root.winfo_screenwidth()
         self.screen_height = self.root.winfo_screenheight()
         self.taskbar_top = _taskbar_top(self.screen_height)
@@ -110,6 +117,8 @@ class AriseOverlay:
         self.root.destroy()
 
     def idle_status(self):
+        if self.ai_provider == "ollama":
+            return f"Ollama · {self.ollama_model}"
         return f"OpenAI · {MODEL}" if self.api_key_configured else "Локальный режим"
 
     def _default_character_position(self):
@@ -365,6 +374,10 @@ class AriseOverlay:
             self._handle_motion_command(message, motion_command)
             return
 
+        if self.ai_provider == "ollama":
+            self._start_ollama_response(message)
+            return
+
         try:
             api_key = load_api_key()
         except CredentialStoreError as error:
@@ -389,6 +402,27 @@ class AriseOverlay:
             args=(api_key, request_messages, message),
             daemon=True,
         ).start()
+
+    def _start_ollama_response(self, message):
+        turn_bubble = self._start_turn_bubble(message)
+        self._record_message("user", message)
+        self.is_responding = True
+        self._set_status("Ollama · отвечает...")
+        request_messages = self._request_messages()
+        self.pending_turn_bubble = turn_bubble
+        threading.Thread(
+            target=self._request_ollama_response,
+            args=(self.ollama_model, request_messages, message),
+            daemon=True,
+        ).start()
+
+    def _request_ollama_response(self, model, messages, user_message):
+        try:
+            answer = OllamaClient(model).reply(messages)
+        except OllamaError as error:
+            self.responses.put((None, str(error), user_message))
+        else:
+            self.responses.put((answer, None, user_message))
 
     def _handle_motion_command(self, message, command: MotionCommand):
         turn_bubble = self._start_turn_bubble(message)
@@ -498,6 +532,8 @@ class AriseOverlay:
         self.api_key_configured = api_key_configured
         self.preferences.update(preferences)
         self.preferences["persona"] = persona
+        self.ai_provider = preferences["ai_provider"]
+        self.ollama_model = preferences["ollama_model"]
         self.follow_cursor = preferences["follow_cursor"]
         self.animate_on_click = preferences["animate_on_click"]
         self.greet_on_start = preferences["greet_on_start"]
@@ -544,13 +580,14 @@ class AriseOverlay:
         turn_bubble = self.pending_turn_bubble
         self.pending_turn_bubble = None
         if error:
+            provider = "Ollama" if self.ai_provider == "ollama" else "OpenAI"
             response = (
-                f"Запрос к OpenAI не выполнен: {error}\n\n"
+                f"Запрос к {provider} не выполнен: {error}\n\n"
                 f"Пока отвечаю локально:\n\n{reply_to(user_message)}"
             )
             self._record_message("assistant", response)
             self._update_turn_bubble(turn_bubble, user_message, response)
-            self._set_status("Локальный режим · ошибка API")
+            self._set_status(f"Локальный режим · ошибка {provider}")
         else:
             self._record_message("assistant", answer)
             self._update_turn_bubble(turn_bubble, user_message, answer)

@@ -29,13 +29,56 @@ def open_settings_dialog(
     dialog.resizable(False, False)
     dialog.transient(parent)
     dialog.grab_set()
-    dialog.geometry("460x620")
+    dialog.geometry("460x700")
 
     content = tk.Frame(dialog, bg="#171522", padx=18, pady=16)
     content.pack(fill="both", expand=True)
     tk.Label(
         content,
-        text="Подключение OpenAI",
+        text="Поставщик ИИ",
+        bg="#171522",
+        fg="#f4efff",
+        font=("Segoe UI", 12, "bold"),
+    ).pack(anchor="w")
+    provider_var = tk.StringVar(dialog, value=preferences["ai_provider"])
+    for value, label in (
+        ("ollama", "Ollama — локально на этом компьютере"),
+        ("openai", "OpenAI API"),
+    ):
+        tk.Radiobutton(
+            content,
+            text=label,
+            variable=provider_var,
+            value=value,
+            bg="#171522",
+            fg="#d8cde4",
+            activebackground="#171522",
+            activeforeground="#f4efff",
+            selectcolor="#2c2740",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w")
+    tk.Label(
+        content,
+        text="Модель Ollama",
+        bg="#171522",
+        fg="#f4efff",
+        font=("Segoe UI", 9, "bold"),
+    ).pack(anchor="w", pady=(6, 3))
+    model_entry = tk.Entry(
+        content,
+        bg="#2c2740",
+        fg="#f4efff",
+        insertbackground="#f4efff",
+        relief="flat",
+        borderwidth=0,
+        font=("Segoe UI", 10),
+    )
+    model_entry.pack(fill="x", ipady=6, pady=(0, 12))
+    model_entry.insert(0, preferences["ollama_model"])
+
+    tk.Label(
+        content,
+        text="Ключ OpenAI API",
         bg="#171522",
         fg="#f4efff",
         font=("Segoe UI", 12, "bold"),
@@ -43,10 +86,11 @@ def open_settings_dialog(
     tk.Label(
         content,
         text=(
-            "Ключ шифруется Windows и хранится только на этом компьютере. "
-            "Оставь поле пустым, чтобы не менять сохранённый ключ."
+            "Нужен только при выборе OpenAI API. Ключ шифруется Windows и хранится "
+            "только на этом компьютере. Оставь поле пустым, чтобы не менять его."
             if has_api_key
-            else "Ключ будет зашифрован Windows и сохранён только на этом компьютере."
+            else "Если выберешь OpenAI, ключ будет зашифрован Windows и сохранён "
+            "только на этом компьютере."
         ),
         bg="#171522",
         fg="#aaa2bd",
@@ -88,7 +132,7 @@ def open_settings_dialog(
     ).pack(anchor="w")
     persona_input = tk.Text(
         content,
-        height=6,
+        height=5,
         bg="#2c2740",
         fg="#f4efff",
         insertbackground="#f4efff",
@@ -159,6 +203,21 @@ def open_settings_dialog(
                 name: variable.get()
                 for name, variable in preference_vars.items()
             }
+            updated_preferences["ai_provider"] = provider_var.get()
+            updated_preferences["ollama_model"] = (
+                model_entry.get().strip()
+                or preferences["ollama_model"]
+            )
+            if (
+                updated_preferences["ai_provider"] == "ollama"
+                and not model_entry.get().strip()
+            ):
+                messagebox.showerror(
+                    "Настройки Arise",
+                    "Укажи название установленной модели Ollama.",
+                    parent=dialog,
+                )
+                return
             save_preferences(updated_persona, **updated_preferences)
             saved_api_key = load_api_key()
             if api_key and saved_api_key != api_key:
@@ -176,14 +235,21 @@ def open_settings_dialog(
         )
         dialog.destroy()
         if not prompted_by_send:
+            if updated_preferences["ai_provider"] == "ollama":
+                confirmation = (
+                    "Настройки сохранены. Сохранение не отправляет запрос; "
+                    "следующее сообщение получит ответ от Ollama."
+                )
+            elif saved_api_key is not None:
+                confirmation = (
+                    "Настройки сохранены. Сохранение не отправляет запрос к API. "
+                    "Отправь сообщение, чтобы получить ответ."
+                )
+            else:
+                confirmation = "Характер сохранён. Добавь API-ключ, чтобы включить чат."
             messagebox.showinfo(
                 "Настройки Arise",
-                (
-                    "Настройки сохранены. Сохранение не отправляет запрос к API. "
-                    "Нажми на облачко и отправь сообщение, чтобы получить ответ."
-                    if saved_api_key is not None
-                    else "Характер сохранён. Добавь API-ключ, чтобы включить чат."
-                ),
+                confirmation,
                 parent=parent,
             )
 

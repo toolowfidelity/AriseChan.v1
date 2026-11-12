@@ -17,6 +17,8 @@ DEFAULT_PREFERENCES = {
     "follow_cursor": True,
     "animate_on_click": True,
     "greet_on_start": True,
+    "ai_provider": "ollama",
+    "ollama_model": "qwen3:4b",
 }
 
 
@@ -54,6 +56,15 @@ def load_preferences():
         if type(value) is not bool:
             raise SettingsError(f"Параметр «{name}» должен иметь логическое значение.")
         preferences[name] = value
+    ai_provider = settings.get("ai_provider", DEFAULT_PREFERENCES["ai_provider"])
+    if not isinstance(ai_provider, str) or ai_provider not in {"ollama", "openai"}:
+        raise SettingsError("Неизвестный поставщик ИИ в настройках Arise.")
+    preferences["ai_provider"] = ai_provider
+
+    ollama_model = settings.get("ollama_model", DEFAULT_PREFERENCES["ollama_model"])
+    if not isinstance(ollama_model, str) or not ollama_model.strip():
+        raise SettingsError("Имя модели Ollama не может быть пустым.")
+    preferences["ollama_model"] = ollama_model.strip()
     return preferences
 
 
@@ -75,7 +86,14 @@ def _write_preferences(preferences):
         raise SettingsError(f"Не удалось сохранить настройки Arise: {error}") from error
 
 
-def save_preferences(persona, follow_cursor, animate_on_click, greet_on_start):
+def save_preferences(
+    persona,
+    follow_cursor,
+    animate_on_click,
+    greet_on_start,
+    ai_provider=DEFAULT_PREFERENCES["ai_provider"],
+    ollama_model=DEFAULT_PREFERENCES["ollama_model"],
+):
     if not persona.strip():
         raise SettingsError("Описание личности не может быть пустым.")
     values = {
@@ -85,8 +103,19 @@ def save_preferences(persona, follow_cursor, animate_on_click, greet_on_start):
     }
     if any(type(value) is not bool for value in values.values()):
         raise SettingsError("Параметры Arise должны иметь логические значения.")
+    if not isinstance(ai_provider, str) or ai_provider not in {"ollama", "openai"}:
+        raise SettingsError("Выбран неизвестный поставщик ИИ.")
+    if not isinstance(ollama_model, str) or not ollama_model.strip():
+        raise SettingsError("Имя модели Ollama не может быть пустым.")
 
-    _write_preferences({"persona": persona.strip(), **values})
+    _write_preferences(
+        {
+            "persona": persona.strip(),
+            **values,
+            "ai_provider": ai_provider,
+            "ollama_model": ollama_model.strip(),
+        }
+    )
 
 
 def save_persona(persona):
@@ -96,4 +125,6 @@ def save_persona(persona):
         preferences["follow_cursor"],
         preferences["animate_on_click"],
         preferences["greet_on_start"],
+        preferences["ai_provider"],
+        preferences["ollama_model"],
     )

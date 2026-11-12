@@ -28,6 +28,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertTrue(preferences["follow_cursor"])
         self.assertTrue(preferences["animate_on_click"])
         self.assertTrue(preferences["greet_on_start"])
+        self.assertEqual(preferences["ai_provider"], "ollama")
+        self.assertEqual(preferences["ollama_model"], "qwen3:4b")
 
     def test_legacy_persona_file_receives_defaults_for_new_options(self):
         path = os.path.join(self.temp_dir.name, "AriseChan", "settings.json")
@@ -41,6 +43,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertTrue(preferences["follow_cursor"])
         self.assertTrue(preferences["animate_on_click"])
         self.assertTrue(preferences["greet_on_start"])
+        self.assertEqual(preferences["ai_provider"], "ollama")
+        self.assertEqual(preferences["ollama_model"], "qwen3:4b")
 
     def test_preferences_round_trip(self):
         save_preferences(
@@ -57,6 +61,8 @@ class SettingsStoreTests(unittest.TestCase):
                 "follow_cursor": False,
                 "animate_on_click": False,
                 "greet_on_start": True,
+                "ai_provider": "ollama",
+                "ollama_model": "qwen3:4b",
             },
         )
 
@@ -77,8 +83,25 @@ class SettingsStoreTests(unittest.TestCase):
                 "follow_cursor": False,
                 "animate_on_click": True,
                 "greet_on_start": False,
+                "ai_provider": "ollama",
+                "ollama_model": "qwen3:4b",
             },
         )
+
+    def test_openai_provider_and_custom_model_are_saved(self):
+        save_preferences(
+            "Arise",
+            follow_cursor=True,
+            animate_on_click=True,
+            greet_on_start=True,
+            ai_provider="openai",
+            ollama_model="qwen3:8b",
+        )
+
+        preferences = load_preferences()
+
+        self.assertEqual(preferences["ai_provider"], "openai")
+        self.assertEqual(preferences["ollama_model"], "qwen3:8b")
 
     def test_invalid_option_type_is_reported(self):
         path = os.path.join(self.temp_dir.name, "AriseChan", "settings.json")
