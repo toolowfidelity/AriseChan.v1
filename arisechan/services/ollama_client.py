@@ -30,7 +30,7 @@ class OllamaClient:
                 "keep_alive": "1m",
                 "options": {
                     "num_ctx": 4096,
-                    "num_predict": 512,
+                    "num_predict": 256,
                 },
             },
             ensure_ascii=False,

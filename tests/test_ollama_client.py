@@ -40,6 +40,7 @@ class OllamaClientTests(unittest.TestCase):
         self.assertFalse(payload["think"])
         self.assertFalse(payload["stream"])
         self.assertEqual(payload["options"]["num_ctx"], 4096)
+        self.assertEqual(payload["options"]["num_predict"], 256)
 
     @patch("arisechan.services.ollama_client.urlopen")
     def test_reports_ollama_api_errors(self, mock_urlopen):
