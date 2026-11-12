@@ -1,0 +1,1 @@
+"""AriseChan automated tests."""
