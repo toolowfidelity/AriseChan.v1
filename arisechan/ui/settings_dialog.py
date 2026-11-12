@@ -29,7 +29,7 @@ def open_settings_dialog(
     dialog.resizable(False, False)
     dialog.transient(parent)
     dialog.grab_set()
-    dialog.geometry("460x700")
+    dialog.geometry("480x900")
 
     content = tk.Frame(dialog, bg="#171522", padx=18, pady=16)
     content.pack(fill="both", expand=True)
@@ -132,7 +132,7 @@ def open_settings_dialog(
     ).pack(anchor="w")
     persona_input = tk.Text(
         content,
-        height=5,
+        height=3,
         bg="#2c2740",
         fg="#f4efff",
         insertbackground="#f4efff",
@@ -143,6 +143,41 @@ def open_settings_dialog(
     )
     persona_input.pack(fill="both", expand=True, pady=(8, 14))
     persona_input.insert("1.0", persona)
+
+    tk.Label(
+        content,
+        text="Качества общения (0–100)",
+        bg="#171522",
+        fg="#f4efff",
+        font=("Segoe UI", 12, "bold"),
+    ).pack(anchor="w", pady=(0, 4))
+    communication_vars = {
+        name: tk.IntVar(dialog, value=value)
+        for name, value in preferences["communication_style"].items()
+    }
+    for name, label in (
+        ("conciseness", "Краткость · подробно — коротко"),
+        ("warmth", "Теплота · сдержанно — заботливо"),
+        ("humor", "Юмор · редко — часто"),
+        ("energy", "Энергичность · спокойно — оживлённо"),
+    ):
+        tk.Scale(
+            content,
+            label=label,
+            variable=communication_vars[name],
+            from_=0,
+            to=100,
+            resolution=5,
+            orient="horizontal",
+            showvalue=True,
+            bg="#171522",
+            fg="#d8cde4",
+            activebackground="#e9a6d7",
+            troughcolor="#2c2740",
+            highlightthickness=0,
+            sliderrelief="flat",
+            font=("Segoe UI", 8),
+        ).pack(fill="x", pady=(0, 2))
 
     tk.Label(
         content,
@@ -208,6 +243,10 @@ def open_settings_dialog(
                 model_entry.get().strip()
                 or preferences["ollama_model"]
             )
+            updated_preferences["communication_style"] = {
+                name: variable.get()
+                for name, variable in communication_vars.items()
+            }
             if (
                 updated_preferences["ai_provider"] == "ollama"
                 and not model_entry.get().strip()

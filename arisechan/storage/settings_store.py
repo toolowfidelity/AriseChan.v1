@@ -12,14 +12,22 @@ DEFAULT_PERSONA = (
     "для чтения или изменения файлов, поэтому не утверждай, что выполнила "
     "такие действия."
 )
+DEFAULT_COMMUNICATION_STYLE = {
+    "conciseness": 85,
+    "warmth": 75,
+    "humor": 25,
+    "energy": 55,
+}
 DEFAULT_PREFERENCES = {
     "persona": DEFAULT_PERSONA,
     "follow_cursor": True,
     "animate_on_click": True,
     "greet_on_start": True,
     "ai_provider": "ollama",
-    "ollama_model": "qwen3:4b",
+    "ollama_model": "qwen3:1.7b",
+    "communication_style": DEFAULT_COMMUNICATION_STYLE,
 }
+PREVIOUS_DEFAULT_OLLAMA_MODEL = "qwen3:4b"
 
 
 class SettingsError(RuntimeError):
@@ -36,7 +44,10 @@ def _settings_path():
 def load_preferences():
     path = _settings_path()
     if not path.exists():
-        return DEFAULT_PREFERENCES.copy()
+        return {
+            **DEFAULT_PREFERENCES,
+            "communication_style": DEFAULT_COMMUNICATION_STYLE.copy(),
+        }
 
     try:
         settings = json.loads(path.read_text(encoding="utf-8"))
@@ -50,7 +61,10 @@ def load_preferences():
     if not isinstance(persona, str) or not persona.strip():
         raise SettingsError("В настройках Arise отсутствует текст личности.")
 
-    preferences = {"persona": persona.strip()}
+    preferences = {
+        "persona": persona.strip(),
+        "communication_style": _load_communication_style(settings),
+    }
     for name in ("follow_cursor", "animate_on_click", "greet_on_start"):
         value = settings.get(name, DEFAULT_PREFERENCES[name])
         if type(value) is not bool:
@@ -64,7 +78,25 @@ def load_preferences():
     ollama_model = settings.get("ollama_model", DEFAULT_PREFERENCES["ollama_model"])
     if not isinstance(ollama_model, str) or not ollama_model.strip():
         raise SettingsError("Имя модели Ollama не может быть пустым.")
+    if ollama_model.strip() == PREVIOUS_DEFAULT_OLLAMA_MODEL:
+        ollama_model = DEFAULT_PREFERENCES["ollama_model"]
     preferences["ollama_model"] = ollama_model.strip()
+    return preferences
+
+
+def _load_communication_style(settings):
+    style = settings.get("communication_style", {})
+    if not isinstance(style, dict):
+        raise SettingsError("Настройки качеств общения должны быть объектом JSON.")
+
+    preferences = {}
+    for name, default in DEFAULT_COMMUNICATION_STYLE.items():
+        value = style.get(name, default)
+        if type(value) is not int or not 0 <= value <= 100:
+            raise SettingsError(
+                f"Качество общения «{name}» должно быть числом от 0 до 100."
+            )
+        preferences[name] = value
     return preferences
 
 
@@ -93,6 +125,7 @@ def save_preferences(
     greet_on_start,
     ai_provider=DEFAULT_PREFERENCES["ai_provider"],
     ollama_model=DEFAULT_PREFERENCES["ollama_model"],
+    communication_style=None,
 ):
     if not persona.strip():
         raise SettingsError("Описание личности не может быть пустым.")
@@ -107,6 +140,13 @@ def save_preferences(
         raise SettingsError("Выбран неизвестный поставщик ИИ.")
     if not isinstance(ollama_model, str) or not ollama_model.strip():
         raise SettingsError("Имя модели Ollama не может быть пустым.")
+    if communication_style is None:
+        communication_style = DEFAULT_COMMUNICATION_STYLE.copy()
+    if not isinstance(communication_style, dict):
+        raise SettingsError("Настройки качеств общения должны быть объектом.")
+    normalized_style = _load_communication_style(
+        {"communication_style": communication_style}
+    )
 
     _write_preferences(
         {
@@ -114,6 +154,7 @@ def save_preferences(
             **values,
             "ai_provider": ai_provider,
             "ollama_model": ollama_model.strip(),
+            "communication_style": normalized_style,
         }
     )
 
@@ -127,4 +168,5 @@ def save_persona(persona):
         preferences["greet_on_start"],
         preferences["ai_provider"],
         preferences["ollama_model"],
+        preferences["communication_style"],
     )

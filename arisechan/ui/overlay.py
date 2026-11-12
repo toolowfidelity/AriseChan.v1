@@ -8,10 +8,12 @@ from tkinter import font as tkfont
 from tkinter import messagebox
 
 from arisechan.services.openai_client import MODEL, OpenAIClient, OpenAIError
+from arisechan.services.communication_style import build_system_prompt
 from arisechan.services.ollama_client import (
     DEFAULT_MODEL as OLLAMA_MODEL,
     OllamaClient,
     OllamaError,
+    num_predict_for_conciseness,
 )
 from arisechan.services.offline_responder import (
     reply_to,
@@ -53,6 +55,7 @@ from arisechan.ui.settings_dialog import open_settings_dialog
 SPI_GETWORKAREA = 0x0030
 MAX_CHAT_HISTORY = 40
 MAX_API_CONTEXT_MESSAGES = 20
+MAX_OLLAMA_CONTEXT_MESSAGES = 8
 
 
 def _taskbar_top(screen_height):
@@ -408,17 +411,19 @@ class AriseOverlay:
         self._record_message("user", message)
         self.is_responding = True
         self._set_status("Ollama · отвечает...")
-        request_messages = self._request_messages()
+        request_messages = self._request_messages(MAX_OLLAMA_CONTEXT_MESSAGES)
+        conciseness = self.preferences["communication_style"]["conciseness"]
+        num_predict = num_predict_for_conciseness(conciseness)
         self.pending_turn_bubble = turn_bubble
         threading.Thread(
             target=self._request_ollama_response,
-            args=(self.ollama_model, request_messages, message),
+            args=(self.ollama_model, request_messages, message, num_predict),
             daemon=True,
         ).start()
 
-    def _request_ollama_response(self, model, messages, user_message):
+    def _request_ollama_response(self, model, messages, user_message, num_predict):
         try:
-            answer = OllamaClient(model).reply(messages)
+            answer = OllamaClient(model, num_predict=num_predict).reply(messages)
         except OllamaError as error:
             self.responses.put((None, str(error), user_message))
         else:
@@ -552,10 +557,16 @@ class AriseOverlay:
         if self.controls_block and self.controls_block.exists():
             self.controls_block.set_status(text)
 
-    def _request_messages(self):
+    def _request_messages(self, max_messages=MAX_API_CONTEXT_MESSAGES):
         return [
-            {"role": "system", "content": self.persona},
-            *self.history[-MAX_API_CONTEXT_MESSAGES:],
+            {
+                "role": "system",
+                "content": build_system_prompt(
+                    self.persona,
+                    self.preferences["communication_style"],
+                ),
+            },
+            *self.history[-max_messages:],
         ]
 
     def _request_response(self, api_key, messages, user_message):

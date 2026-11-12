@@ -4,7 +4,11 @@ from io import BytesIO
 from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
-from arisechan.services.ollama_client import OllamaClient, OllamaError
+from arisechan.services.ollama_client import (
+    OllamaClient,
+    OllamaError,
+    num_predict_for_conciseness,
+)
 
 
 class FakeResponse:
@@ -39,8 +43,9 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(payload["messages"], messages)
         self.assertFalse(payload["think"])
         self.assertFalse(payload["stream"])
-        self.assertEqual(payload["options"]["num_ctx"], 4096)
-        self.assertEqual(payload["options"]["num_predict"], 256)
+        self.assertEqual(payload["keep_alive"], "5m")
+        self.assertEqual(payload["options"]["num_ctx"], 2048)
+        self.assertEqual(payload["options"]["num_predict"], 128)
 
     @patch("arisechan.services.ollama_client.urlopen")
     def test_reports_ollama_api_errors(self, mock_urlopen):
@@ -65,6 +70,15 @@ class OllamaClientTests(unittest.TestCase):
     def test_rejects_empty_model_name(self):
         with self.assertRaises(ValueError):
             OllamaClient(" ")
+
+    def test_rejects_invalid_response_token_limit(self):
+        with self.assertRaises(ValueError):
+            OllamaClient(num_predict=32)
+
+    def test_conciseness_controls_response_token_limit(self):
+        self.assertEqual(num_predict_for_conciseness(100), 64)
+        self.assertEqual(num_predict_for_conciseness(85), 93)
+        self.assertEqual(num_predict_for_conciseness(0), 256)
 
 
 if __name__ == "__main__":
